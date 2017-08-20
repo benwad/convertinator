@@ -9,7 +9,7 @@ from collections import Counter
 import praw
 
 import credentials
-from units import units
+from units import converters
 
 
 def init_praw():
@@ -50,10 +50,8 @@ def strip_urls(comment_text):
 def get_imperial_measurements(comment_body, min_matches=1):
     comment_body = strip_urls(comment_body).replace(',', '')
     measurements = []
-    for regex in units:
-        matches = re.findall(regex['regex'], comment_body, re.MULTILINE)
-        for match in matches:
-            measurements.append((match[0], regex))
+    for converter in converters:
+        measurements += converter.get_measurements(comment_body)
 
     ret = deduplicate_measurements(measurements)
 
@@ -63,29 +61,17 @@ def get_imperial_measurements(comment_body, min_matches=1):
         return []
 
 
-def convert_to_metric_old(quantity, unit):
-    new_unit = ureg(units[unit])
-    orig_quantity = float(quantity) * ureg(unit)
-    converted = orig_quantity.to(new_unit).to_tuple()
-    return converted[0], converted[1][0][0]
-
-
 def process_comment(comment):
     imperial_measurements = get_imperial_measurements(comment.body, min_matches=2)
     if len(imperial_measurements) > 0:
         comment_text = "Hi, I'm a bot! Here are metric conversions of the imperial units found in your comment:\n\n"
 
-        for quantity, matched_regex in imperial_measurements:
-            try:
-                metric_quantity, metric_unit = matched_regex['convert_function'](quantity, matched_regex['from_unit'], matched_regex['to_unit'])
-                comment_text += "* {} {} ~= {:.2f} {}\n\n".format(
-                    quantity, matched_regex['from_symbol'],
-                    metric_quantity, matched_regex['to_symbol']
-                )
-            except Exception as e:
-                print("Error!")
-                print(e)
-                print(comment.body)
+        for quantity, converter in imperial_measurements:
+            metric_quantity, metric_unit = converter.convert_to_metric(quantity)
+            comment_text += "* {} {} ~= {:.2f} {}\n\n".format(
+                quantity, converter.from_symbol,
+                metric_quantity, converter.to_symbol
+            )
 
         comment_text += "\n\nI hope this was helpful. DM me if there were any problems!\n\n"
         comment_text += "*TheConvertinator*"
@@ -150,9 +136,9 @@ def run_on_subreddit(subreddit_name, list_function, limit=30, dryrun=False, do_l
                         'parent_id': parent_comment.id,
                         'reply_text': comment_text
                     }
-                    for parent_comment, comment_text in comments_to_make
+                    for parent_comment, comment_text, _ in comments_to_make
                 ]
-            }, logfile)
+            }, logfile, indent=4)
 
 
 
